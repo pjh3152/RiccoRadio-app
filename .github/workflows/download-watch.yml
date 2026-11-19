@@ -1,0 +1,94 @@
+# Ricco 앱 3개의 APK 다운로드 수를 3시간마다 확인하고, 늘었으면 메일로 알린다.
+# 감시 대상: .github/download-watch/apps.json  (앱을 추가할 때는 이 파일만 고친다)
+# 기록 저장: download-stats 브랜치의 stats.json (main/소개 페이지와 분리)
+name: APK 다운로드 감시
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"   # UTC 기준 3시간마다 17분 (정각 혼잡을 피함. GitHub 사정으로 늦게 실행될 수 있음)
+  workflow_dispatch:
+    inputs:
+      test_email:
+        description: "현재 누적 수로 테스트 메일 보내기"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write   # 기록 브랜치에 저장
+  actions: write    # 예약 실행이 60일 뒤 자동으로 꺼지지 않도록 유지
+
+concurrency:
+  group: download-watch
+  cancel-in-progress: false   # 동시에 두 개가 돌지 않고, 늦게 온 실행은 앞 실행이 끝날 때까지 기다린다
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      STATE_BRANCH: download-stats
+      CONFIG: .github/download-watch/apps.json
+      SCRIPT: .github/download-watch/watch.py
+      STATE: stats/stats.json
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 기록 브랜치 준비
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null; then
+            git fetch --depth=1 origin "$STATE_BRANCH"
+            git worktree add -B "$STATE_BRANCH" stats "origin/$STATE_BRANCH"
+          else
+            git worktree add --orphan -b "$STATE_BRANCH" stats
+          fi
+
+      - name: 다운로드 수 확인
+        id: update
+        run: python3 "$SCRIPT" update --config "$CONFIG" --state "$STATE"
+
+      - name: 기록 저장 (메일 보내기 전)
+        run: |
+          cd stats
+          git add stats.json
+          git diff --cached --quiet && exit 0
+          git commit -q -m "다운로드 기록 $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M') KST"
+          for i in 1 2 3; do git push -q origin "$STATE_BRANCH" && exit 0; sleep 10; done
+          exit 1
+
+      - name: 알림 메일 보내기
+        if: steps.update.outputs.notify == 'true'
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python3 "$SCRIPT" notify --config "$CONFIG" --state "$STATE"
+
+      - name: 기록 저장 (메일 보낸 뒤)
+        if: steps.update.outputs.notify == 'true'
+        run: |
+          cd stats
+          git add stats.json
+          git diff --cached --quiet && exit 0
+          git commit -q -m "알림 발송 완료 $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M') KST"
+          for i in 1 2 3; do git push -q origin "$STATE_BRANCH" && exit 0; sleep 10; done
+          exit 1
+
+      - name: 테스트 메일 보내기
+        if: github.event_name == 'workflow_dispatch' && inputs.test_email
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python3 "$SCRIPT" notify --test --config "$CONFIG" --state "$STATE"
+
+      - name: 예약 실행 유지
+        if: always()
+        continue-on-error: true
+        run: gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/download-watch.yml/enable"

@@ -179,7 +179,10 @@ def send_mail(title, text, body):
     port = int(os.environ.get("SMTP_PORT", "").strip() or "465")
     msg = MIMEMultipart("alternative")
     msg["Subject"] = title
-    msg["From"] = os.environ.get("MAIL_FROM", "").strip() or user
+    sender = os.environ.get("MAIL_FROM", "").strip() or user
+    if "@" not in sender and host.endswith("naver.com"):
+        sender += "@naver.com"  # 네이버는 아이디만으로 로그인하지만 보내는 주소는 아이디@naver.com 이어야 한다
+    msg["From"] = sender
     msg["To"] = ", ".join(to)
     msg.attach(MIMEText(text, "plain", "utf-8"))
     msg.attach(MIMEText(body, "html", "utf-8"))

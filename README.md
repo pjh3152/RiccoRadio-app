@@ -18,7 +18,7 @@
 
 ## 다운로드
 
-👉 **[최신 버전 APK 받기 (Releases)](https://github.com/pjh3152/RiccoRadio-release/releases/latest)**
+👉 **[최신 버전 APK 받기 (Releases)](https://github.com/pjh3152/RiccoRadio-app/releases/latest)**
 
 `Assets` 항목의 `RiccoRadio-x.y.z.apk` 를 받아 설치하면 됩니다.
 
@@ -61,7 +61,7 @@
 | 포그라운드 서비스(미디어 재생) | 화면이 꺼져도 재생을 이어가기 |
 | 절전 모드 해제 방지(WAKE_LOCK) | 재생 중 끊김 방지 |
 
-개인정보를 수집하거나 외부로 보내지 않습니다. 자세한 내용은 [개인정보처리방침](https://pjh3152.github.io/RiccoRadio-release/privacy.html)을 확인하세요.
+개인정보를 수집하거나 외부로 보내지 않습니다. 자세한 내용은 [개인정보처리방침](https://pjh3152.github.io/RiccoRadio-app/privacy.html)을 확인하세요.
 
 ## 방송 정보 출처
 
@@ -79,8 +79,8 @@
 
 ## 개인정보처리방침
 
-[개인정보처리방침 보기](https://pjh3152.github.io/RiccoRadio-release/privacy.html)
+[개인정보처리방침 보기](https://pjh3152.github.io/RiccoRadio-app/privacy.html)
 
 ## 문의 / 버그 제보
 
-[Issues](https://github.com/pjh3152/RiccoRadio-release/issues) 에 남겨 주세요.
+[Issues](https://github.com/pjh3152/RiccoRadio-app/issues) 에 남겨 주세요.

@@ -1,4 +1,4 @@
-# Ricco 앱 3개의 APK 다운로드 수를 3시간마다 확인하고, 늘었으면 메일로 알린다.
+# Ricco 앱들의 APK 다운로드 수를 3시간마다 확인하고, 늘었으면 메일로 알린다.
 # 감시 대상: .github/download-watch/apps.json  (앱을 추가할 때는 이 파일만 고친다)
 # 기록 저장: download-stats 브랜치의 stats.json (main/소개 페이지와 분리)
 name: APK 다운로드 감시

@@ -14,6 +14,10 @@
   apps.<이름>.assets  : APK 파일(asset id)별 마지막으로 본 다운로드 수. 삭제된 릴리즈도 기억해 둔다.
   apps.<이름>.total   : 누적 다운로드 (줄어들지 않는다)
   apps.<이름>.pending : 아직 메일로 알리지 못한 증가분
+  apps.<이름>.pending_assets : 미발송 증가분의 APK 파일별 내역 {asset id: 증가분}
+  apps.<이름>.labels  : APK 파일(asset id)별 릴리즈 태그 (메일에 "v0.1.6 +2회" 로 보여 주기용)
+
+메일은 앱마다 신규 다운로드(버전별 내역)만 보여 주고, 누적은 맨 아래 전체 합계로 한 번만 보여 준다.
 """
 
 import argparse
@@ -78,8 +82,8 @@ def api_get(url):
 
 
 def fetch_apk_counts(repo):
-    """저장소의 모든 릴리즈에 있는 .apk 파일별 다운로드 수 {asset_id: count}"""
-    counts = {}
+    """저장소의 모든 릴리즈에 있는 .apk 파일별 다운로드 수 {asset_id: count} 와 태그 {asset_id: tag}"""
+    counts, labels = {}, {}
     page = 1
     while True:
         releases = api_get(f"{API}/repos/{repo}/releases?per_page=100&page={page}")
@@ -89,8 +93,9 @@ def fetch_apk_counts(repo):
             for a in rel.get("assets", []):
                 if a.get("name", "").lower().endswith(".apk"):
                     counts[str(a["id"])] = int(a.get("download_count", 0))
+                    labels[str(a["id"])] = rel.get("tag_name") or a.get("name", "")
         if len(releases) < 100:
-            return counts
+            return counts, labels
         page += 1
 
 
@@ -103,7 +108,7 @@ def cmd_update(apps, state_path):
     checked = now_kst()
     for app in apps:
         name = app["name"]
-        cur = fetched[name]
+        cur, labels = fetched[name]
         rec = state["apps"].get(name)
         if rec is None:
             # 처음 보는 앱: 현재 값을 기준값으로만 저장하고 알리지 않는다
@@ -112,19 +117,27 @@ def cmd_update(apps, state_path):
                 "assets": cur,
                 "total": sum(cur.values()),
                 "pending": 0,
+                "pending_assets": {},
+                "labels": labels,
                 "baseline_at": checked,
             }
             print(f"{name}: 기준값 저장 {sum(cur.values())}회")
             continue
         prev = rec["assets"]
         delta = 0
+        pa = rec.setdefault("pending_assets", {})
         for aid, c in cur.items():
             p = prev.get(aid)
             # 새 APK 는 0 에서 시작하므로 전부 새 다운로드. 줄어든 경우(통계 초기화)는 0 으로 본다
-            delta += c if p is None else max(0, c - p)
+            d = c if p is None else max(0, c - p)
+            if d:
+                delta += d
+                pa[aid] = pa.get(aid, 0) + d
         merged = dict(prev)  # 지워진 릴리즈도 기억해 두어, 다시 보여도 새 다운로드로 오인하지 않는다
         merged.update(cur)
-        rec.update(repo=app["repo"], assets=merged)
+        lab = dict(rec.get("labels", {}))
+        lab.update(labels)
+        rec.update(repo=app["repo"], assets=merged, labels=lab)
         rec["total"] += delta
         rec["pending"] += delta
         print(f"{name}: +{delta}회 (누적 {rec['total']}회, 미발송 {rec['pending']}회)")
@@ -139,6 +152,25 @@ def cmd_update(apps, state_path):
     print("알림 필요" if notify else "알림 없음")
 
 
+def version_key(label):
+    """'v0.1.10' 이 'v0.1.9' 보다 위에 오도록 숫자로 비교"""
+    parts = []
+    for x in label.lstrip("vV").replace("-", ".").split("."):
+        parts.append((0, int(x), "") if x.isdigit() else (1, 0, x))
+    return parts
+
+
+def breakdown(rec):
+    """미발송 증가분을 버전별로: [('v0.1.6', 2), ('v0.1.5', 2)] (최신 버전 먼저)"""
+    labels = rec.get("labels", {})
+    by = {}
+    for aid, d in rec.get("pending_assets", {}).items():
+        if d > 0:
+            lab = labels.get(aid, "이전 버전")
+            by[lab] = by.get(lab, 0) + d
+    return sorted(by.items(), key=lambda kv: version_key(kv[0]), reverse=True)
+
+
 def build_mail(apps, state, test=False):
     checked = now_kst()
     rows_txt, rows_html, grand = [], [], 0
@@ -146,10 +178,13 @@ def build_mail(apps, state, test=False):
         rec = state["apps"].get(app["name"])
         if rec is None:
             continue
-        inc, total = (0 if test else rec["pending"]), rec["total"]
-        grand += total
+        inc = 0 if test else rec["pending"]
+        grand += rec["total"]
         page = app["page"]
-        rows_txt.append(f"{app['name']}\n  - 신규 다운로드: +{inc}회\n  - 누적 다운로드: {total}회\n  - 소개 페이지: {page}\n")
+        parts = [] if test else breakdown(rec)
+        detail = " · ".join(f"{lab} +{d}회" for lab, d in parts)
+        rows_txt.append(f"{app['name']}\n  - 신규 다운로드: +{inc}회" + (f" ({detail})" if detail else "") +
+                        f"\n  - 소개 페이지: {page}\n")
         hi = inc > 0
         box = ("background:#fff4e5;border:2px solid #ff8a3d;" if hi else "background:#f6f7f9;border:1px solid #e1e4e8;")
         badge = (f'<span style="color:#d9480f;font-weight:bold;">+{inc}회 🔥</span>' if hi
@@ -158,7 +193,7 @@ def build_mail(apps, state, test=False):
             f'<div style="{box}border-radius:10px;padding:12px 16px;margin:10px 0;">'
             f'<div style="font-size:17px;font-weight:bold;margin-bottom:6px;">{html.escape(app["name"])}</div>'
             f'<div>신규 다운로드: {badge}</div>'
-            f'<div>누적 다운로드: <b>{total}회</b></div>'
+            + (f'<div style="color:#5c6370;font-size:13px;">버전별: {html.escape(detail)}</div>' if detail else "") +
             f'<div>소개 페이지: <a href="{html.escape(page)}">{html.escape(page)}</a></div></div>')
     title = "[Ricco Apps] APK 다운로드 알림" + (" (테스트)" if test else "")
     head = "📦 Ricco 앱 다운로드 현황" + (" — 테스트 메일입니다" if test else "")
@@ -211,6 +246,7 @@ def cmd_notify(apps, state_path, test):
     if not test:
         for rec in state["apps"].values():
             rec["pending"] = 0
+            rec["pending_assets"] = {}
         state["notified_at"] = now_kst()
         save_json(state_path, state)
 

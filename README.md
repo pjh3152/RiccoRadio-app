@@ -1,3 +1,5 @@
+<p align="center"><img src="icon.png" width="96" height="96" alt="주황 바탕의 웃는 라디오 아이콘"></p>
+
 # RiccoRadio (릭코 라디오)
 
 **전 세계 인터넷 라디오를 실시간으로 듣는 Android 앱**
